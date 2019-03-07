@@ -5,7 +5,11 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+/**
+ * 模式产生通话记录，每秒两条记录
+ */
 public class ProductLog {
+    //限制通话记录的时间范围
     private String startTime = "2017-01-01";
     private String endTime = "2017-12-31";
 
@@ -77,6 +81,7 @@ public class ProductLog {
             int calleeIndex = (int) (Math.random() * phoneList.size());
             callee = phoneList.get(calleeIndex);
             calleeName = phoneNameMap.get(callee);
+            //主叫被叫不能相同
             if (!caller.equals(callee)) break;
         }
 

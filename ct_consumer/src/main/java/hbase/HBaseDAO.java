@@ -3,29 +3,30 @@ package hbase;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hbase.HBaseConfiguration;
 import org.apache.hadoop.hbase.TableName;
-import org.apache.hadoop.hbase.client.Connection;
-import org.apache.hadoop.hbase.client.ConnectionFactory;
-
-import org.apache.hadoop.hbase.client.Put;
-import org.apache.hadoop.hbase.client.Table;
+import org.apache.hadoop.hbase.client.*;
 import org.apache.hadoop.hbase.util.Bytes;
+import utils.ConnectionInstance;
 import utils.HbaseUtil;
 import utils.PropertiesUtil;
 
 import java.io.IOException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-
+import java.util.ArrayList;
+import java.util.List;
 
 public class HBaseDAO {
     private int regions;
     private String namespace;
     private String tableName;
     public static final Configuration conf;
-    private Table table;
+    private HTable table;
     private Connection connection;
     private SimpleDateFormat sdf1 = new SimpleDateFormat("yy-MM-dd HH:mm:ss");
     private SimpleDateFormat sdf2 = new SimpleDateFormat("yyMMddHHmmss");
+    //缓存多条put
+    private List<Put> cacheList = new ArrayList<>();
+
     static {
         conf = HBaseConfiguration.create();
     }
@@ -42,8 +43,6 @@ public class HBaseDAO {
             namespace = PropertiesUtil.getProperty("hbase.calllog.namespace");
             tableName = PropertiesUtil.getProperty("hbase.calllog.tablename");
 
-            connection = ConnectionFactory.createConnection(conf);
-            table = connection.getTable(TableName.valueOf(tableName));
 
             if (!HbaseUtil.isExistTable(conf, tableName)) {
                 HbaseUtil.initNamespace(conf, namespace);
@@ -65,6 +64,16 @@ public class HBaseDAO {
 
         try {
 
+            if(cacheList.size() == 0){
+                connection = ConnectionInstance.getConnection(conf);
+                table = (HTable) connection.getTable(TableName.valueOf(tableName));
+                table.setAutoFlushTo(false);
+
+                table.setWriteBufferSize(2 * 1024 * 1024);
+            }
+
+
+
             String[] splits = ori.split(",");
 
             String callee = splits[0];
@@ -72,7 +81,6 @@ public class HBaseDAO {
             String buildTime = splits[2];
             String duration = splits[3];
             String regionCode = HbaseUtil.genRegionCode(caller, buildTime, regions);
-
             String buildTimeReplace = sdf2.format(sdf1.parse(buildTime));
             String buildTimeTs = String.valueOf(sdf1.parse(buildTime).getTime());
             //生成rowKey
@@ -86,7 +94,16 @@ public class HBaseDAO {
             put.addColumn(Bytes.toBytes("f1"),Bytes.toBytes("flag"),Bytes.toBytes("1"));
             put.addColumn(Bytes.toBytes("f1"),Bytes.toBytes("duration"),Bytes.toBytes(duration));
 
-            table.put(put);
+            cacheList.add(put);
+
+            if(cacheList.size() >= 30){
+                table.put(cacheList);
+                table.flushCommits();
+
+                table.close();
+                cacheList.clear();
+            }
+
         } catch (IOException e) {
             e.printStackTrace();
         } catch (ParseException e) {

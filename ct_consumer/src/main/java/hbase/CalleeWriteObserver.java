@@ -15,10 +15,15 @@ import utils.HbaseUtil;
 import utils.PropertiesUtil;
 
 import java.io.IOException;
+
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 
+/**
+ * 遇到问题尝试重启
+ */
 public class CalleeWriteObserver extends BaseRegionObserver {
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
     @Override
     public void postPut(ObserverContext<RegionCoprocessorEnvironment> e, Put put, WALEdit edit, Durability durability) throws IOException {
         super.postPut(e, put, edit, durability);
@@ -33,6 +38,7 @@ public class CalleeWriteObserver extends BaseRegionObserver {
         String oriRowKey = Bytes.toString(put.getRow());
         String[] splitOriRowKey = oriRowKey.split("_");
         String flag = splitOriRowKey[4];
+        //因为协处理器会重复调用put函数
         if(StringUtils.equals(flag, "0")) return;
 
        // String oldFlag = splitOriRowKey[4];
@@ -46,6 +52,17 @@ public class CalleeWriteObserver extends BaseRegionObserver {
         String duration = splitOriRowKey[5];
         String regionCode = HbaseUtil.genRegionCode(callee, buildTime, regions);
 
+        //生成时间戳
+        String buildTimeTs = "";
+        try {
+            buildTimeTs = String.valueOf(sdf.parse(buildTime).getTime());
+        } catch (ParseException e1) {
+            e1.printStackTrace();
+        }
+//        new SimpleDateFormat("yyyyMMddHHmmss").parse(buildTime).getTime()
+
+
+
         String calleeRowKey = HbaseUtil.genRowKey(regionCode, callee, buildTime, caller, flag, duration);
         Put calleePut = new Put(Bytes.toBytes(calleeRowKey));
         calleePut.addColumn(Bytes.toBytes("f2"),Bytes.toBytes("call1"),Bytes.toBytes(callee));
@@ -53,14 +70,8 @@ public class CalleeWriteObserver extends BaseRegionObserver {
         calleePut.addColumn(Bytes.toBytes("f2"),Bytes.toBytes("buildTime"),Bytes.toBytes(buildTime));
         calleePut.addColumn(Bytes.toBytes("f2"),Bytes.toBytes("flag"),Bytes.toBytes(newflag));
         calleePut.addColumn(Bytes.toBytes("f2"),Bytes.toBytes("duration"),Bytes.toBytes(duration));
+        calleePut.addColumn(Bytes.toBytes("f2"),Bytes.toBytes("buildTime_ts"),Bytes.toBytes(buildTimeTs));
 
-        try {
-            calleePut.addColumn(Bytes.toBytes("f2"),Bytes.toBytes("buildTime_ts"),Bytes.toBytes(new SimpleDateFormat("yyyyMMddHHmmss").parse(buildTime).getTime()));
-        } catch (ParseException e1) {
-            calleePut.addColumn(Bytes.toBytes("f2"),Bytes.toBytes("buildTime_ts"),Bytes.toBytes(""));
-
-            e1.printStackTrace();
-        }
 
         Table table = e.getEnvironment().getTable(TableName.valueOf(targetTableName));
         table.put(calleePut);
